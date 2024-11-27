@@ -248,7 +248,7 @@ class _attention(torch.autograd.Function):
             extra_kern_args = {"waves_per_eu": waves_per_eu, "allow_flush_denorm": True}
 
         grid = lambda args: (triton.cdiv(q.shape[2], args["BLOCK_M"]), q.shape[0] * q.shape[1], 1)
-        M = torch.empty((q.shape[0], q.shape[1], q.shape[2]), device=q.device, dtype=torch.float32)
+        M = torch.empty((q.shape[0], q.shape[1], q.shape[2]), device=q.device, dtype=torch.float16)
 
         _attn_fwd[grid](
             q, k, v, sm_scale, M, o, c, #
@@ -272,4 +272,4 @@ class _attention(torch.autograd.Function):
         return o, c, M
 
 
-attention = _attention.apply
+selection_attention = _attention.apply

@@ -1,7 +1,8 @@
 import torch
-from triton_attention import *
+from selection_kernel import selection_attention
 import argparse
 import gc
+
 
 
 def gpu_cleanup():
@@ -49,7 +50,7 @@ def test_triton_computation(Z, H, N_CTX, HEAD_DIM, causal, dtype=torch.float16):
     q, k, v = test_create_tensors(Z, H, N_CTX, HEAD_DIM, dtype)
     sm_scale = 0.5
     torch.cuda.synchronize()
-    tri_out, tri_c, tri_m = attention(q, k, v, causal, sm_scale)
+    tri_out, tri_c, tri_m = selection_attention(q, k, v, causal, sm_scale)
     torch.cuda.synchronize()
     return tri_out, tri_c, tri_m
 
