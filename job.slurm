@@ -4,13 +4,13 @@
 #SBATCH --account=bcjw-delta-gpu
 #SBATCH --gres=gpu:1
 #SBATCH --nodes=1
-#SBATCH --time=00:20:00
+#SBATCH --time=00:30:00
 #SBATCH --output=eval.log
 #SBATCH --output=two_pass_accum_output_%j.log
 #SBATCH --error=two_pass_accum_error_%j.log
 #SBATCH --mem-per-cpu=20G  # Adjusted memory to prevent OOM error
 
-module load cuda/12.3.0
+module load cuda/12.4.0
 
 export LD_LIBRARY_PATH=/usr/local/cuda-12.3/lib64:$LD_LIBRARY_PATH
 export PATH=/usr/local/cuda-12.3/bin:$PATH

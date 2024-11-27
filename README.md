@@ -1,15 +1,33 @@
-# CS-598-AIE-Project
+# Selection kernel for self-attention 
 
-## Weekly updates
+## Requirements
+```
+cd quant
+pip install -r requirements.txt 
+```
+## Installation
+```
+python install .
+```
 
-### Week 1 Update
-1. Read Triton and H2O paper
-2. Learn Triton
+## Usage
+### Forwarding function function 
+```
+out, c, LSE = selection_attention(q, k, v, causal, sm_scale)
 
-### Week 2 Update
-1. Understand current implementation of FlashAttention in Triton
-2. Setup and run Triton Flash Attention locally 
+```
+out: standard weighted V
 
-### Week 3 Update
-1. Continue understanding current implementation of FlashAttention in Triton
-2. Brainstorm the design of our new kernel (Specifics like threading model and Triton specific components). Start looking into implementation of different components.
+c: cumulate column-wise sum of attention score 
+
+LSE: log sum of exponential for each row
+
+### Running tests
+1.  simple tests
+```
+python tests.py --Z 10 --H 128 --N_CTX 1024 --HEAD_DIM 32
+```
+
+### Create sbatch jobs
+1. `job.slurm` creates sbatch files for running multiple experiments.
+
