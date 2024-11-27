@@ -25,9 +25,9 @@ LSE: log sum of exponential for each row
 ### Running tests
 1.  simple tests
 ```
-python tests.py --Z 10 --H 128 --N_CTX 1024 --HEAD_DIM 32
+python tests/tests.py --Z 10 --H 128 --N_CTX 1024 --HEAD_DIM 32
 ```
 
 ### Create sbatch jobs
-1. `job.slurm` creates sbatch files for running multiple experiments.
+1. `tests/job.slurm` creates sbatch files for running multiple experiments.
 
