@@ -2,12 +2,11 @@
 
 ## Requirements
 ```
-cd quant
 pip install -r requirements.txt 
 ```
 ## Installation
 ```
-python install .
+pip install .
 ```
 
 ## Usage
