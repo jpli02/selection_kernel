@@ -6,7 +6,6 @@ import gc
 import time
 
 
-
 def gpu_cleanup():
     """
     Function to clean up GPU memory.
@@ -58,6 +57,10 @@ def test_attention(Z, H, N_CTX, HEAD_DIM, causal, dtype=torch.float16):
     gpu_cleanup()
     q, k, v = test_create_tensors(Z, H, N_CTX, HEAD_DIM, dtype)
     
+    for i in range(10):
+        test_triton_computation(q, k, v)
+        
+    
     # test for triton implementation
     torch.cuda.empty_cache()
     torch.cuda.ipc_collect()
@@ -74,6 +77,9 @@ def test_attention(Z, H, N_CTX, HEAD_DIM, causal, dtype=torch.float16):
     print(f"latency for normal triton implementation is {latency_triton}")
     
     # test for torch implementation
+    for i in range(10):
+        test_ref_torch(q, k, v)
+        
     torch.cuda.empty_cache()
     torch.cuda.ipc_collect()
     torch.cuda.reset_peak_memory_stats()
@@ -88,6 +94,26 @@ def test_attention(Z, H, N_CTX, HEAD_DIM, causal, dtype=torch.float16):
     latency_torch = end_torch - start_torch
     print(f"mem usage for pytorch implementation is {used_mem_torch / 1024**2} MB")
     print(f"latency for normal pytorch implementation is {latency_torch}")
+    
+    
+    for i in range(10):
+        test_ref_fa(q, k, v)
+        
+    # test for torch fa implementation
+    torch.cuda.empty_cache()
+    torch.cuda.ipc_collect()
+    torch.cuda.reset_peak_memory_stats()
+    torch.cuda.synchronize()
+    
+    start_fa = time.perf_counter()
+    ref_out_fa = test_ref_fa(q, k, v)
+    torch.cuda.synchronize()
+    end_fa = time.perf_counter()
+    
+    used_mem_fa = torch.cuda.max_memory_allocated()
+    latency_fa = end_fa - start_fa
+    print(f"mem usage for fa implementation is {used_mem_fa / 1024**2} MB")
+    print(f"latency for normal fa implementation is {latency_fa}")
     
     
 

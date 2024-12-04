@@ -78,10 +78,11 @@ configs = [
     triton.Config({'BLOCK_M': BM, 'BLOCK_N': BN}, num_stages=s, num_warps=w) \
     # for BM in [64, 128]\
     # for BN in [32, 64]\
-    for BM in [16]\
-    for BN in [16]\
+    for BM in [64]\
+    for BN in [64]\
     for s in ([1] if is_hip() else [3, 4, 7])\
-    for w in [4, 8]\
+    # for w in [4, 8]\
+    for w in [4]\
 ]
 
 
@@ -92,8 +93,12 @@ def keep(conf):
         return False
     return True
 
+def init_c_hook(**kwargs):
+    # kwargs will include 'C' because we provided reset_to_zero=["C"]
+    C = kwargs['C']
+    C.zero_()
 
-@triton.autotune(list(filter(keep, configs)), key=["N_CTX", "HEAD_DIM"])
+@triton.autotune(list(filter(keep, configs)), key=["N_CTX", "HEAD_DIM"], reset_to_zero=["C"])
 @triton.jit
 def _attn_fwd(Q, K, V, sm_scale, M, Out, C, # C = (Z, H, N_CTX)
               stride_qz, stride_qh, stride_qm, stride_qk,  #
