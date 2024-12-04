@@ -1,0 +1,10 @@
+README.md
+setup.py
+selection_kernel/__init__.py
+selection_kernel/select_attn.py
+selection_kernel.egg-info/PKG-INFO
+selection_kernel.egg-info/SOURCES.txt
+selection_kernel.egg-info/dependency_links.txt
+selection_kernel.egg-info/requires.txt
+selection_kernel.egg-info/top_level.txt
+tests/tests.py

@@ -1,7 +1,9 @@
 import torch
+import torch.nn.functional as F
 from selection_kernel import selection_attention
 import argparse
 import gc
+import time
 
 
 
@@ -24,30 +26,27 @@ def test_create_tensors(Z, H, N_CTX, HEAD_DIM, dtype=torch.float16):
     return q, k, v
 
 
-def test_reference_computation(Z, H, N_CTX, HEAD_DIM, causal, dtype=torch.float16):
+def test_ref_torch(q, k, v):
     """
     Perform reference attention computation on the GPU.
     """
-    q, k, v = test_create_tensors(Z, H, N_CTX, HEAD_DIM, dtype)
-
     sm_scale = 0.5
-    M = torch.tril(torch.ones((N_CTX, N_CTX), device="cuda", dtype=dtype))
     p_gpu = torch.matmul(q, k.transpose(2, 3)) * sm_scale
 
-    if causal:
-        p_gpu = torch.where(M == 0, float("-inf"), p_gpu)
-
     p_gpu = torch.softmax(p_gpu, dim=-1)
-    ref_c_gpu = torch.sum(p_gpu, dim=2)
-    ref_out_gpu = torch.matmul(p_gpu, v)
-    return ref_out_gpu, ref_c_gpu
+    ref_c_torch = torch.sum(p_gpu, dim=2)
+    ref_out_torch = torch.matmul(p_gpu, v)
+    return ref_out_torch, ref_c_torch
 
-
-def test_triton_computation(Z, H, N_CTX, HEAD_DIM, causal, dtype=torch.float16):
+def test_ref_fa(q, k, v):
+    # use flash-attention optimization by default
+    ref_out_fa = F.scaled_dot_product_attention(q, k, v)    
+    return ref_out_fa
+    
+def test_triton_computation(q, k, v, causal=False):
     """
     Perform Triton-based attention computation on the GPU.
     """
-    q, k, v = test_create_tensors(Z, H, N_CTX, HEAD_DIM, dtype)
     sm_scale = 0.5
     # torch.cuda.synchronize()
     tri_out, tri_c, tri_m = selection_attention(q, k, v, causal, sm_scale)
@@ -57,17 +56,49 @@ def test_triton_computation(Z, H, N_CTX, HEAD_DIM, causal, dtype=torch.float16):
 
 def test_attention(Z, H, N_CTX, HEAD_DIM, causal, dtype=torch.float16):
     gpu_cleanup()
-    ref_out_gpu, ref_c_gpu = test_reference_computation(Z, H, N_CTX, HEAD_DIM, causal, dtype)
-    tri_out_gpu, tri_c_gpu, tri_m_gpu = test_triton_computation(Z, H, N_CTX, HEAD_DIM, causal, dtype)
+    q, k, v = test_create_tensors(Z, H, N_CTX, HEAD_DIM, dtype)
+    
+    # test for triton implementation
+    torch.cuda.empty_cache()
+    torch.cuda.ipc_collect()
+    torch.cuda.reset_peak_memory_stats()
+    torch.cuda.synchronize()
+    
+    start_triton = time.perf_counter()
+    tri_out_gpu, tri_c_gpu, tri_m_gpu = test_triton_computation(q, k, v)
+    torch.cuda.synchronize()
+    end_triton = time.perf_counter()
+    used_mem_triton = torch.cuda.max_memory_allocated()
+    latency_triton = end_triton - start_triton
+    print(f"mem usage for triton implementation is {used_mem_triton/ 1024**2} MB")
+    print(f"latency for normal triton implementation is {latency_triton}")
+    
+    # test for torch implementation
+    torch.cuda.empty_cache()
+    torch.cuda.ipc_collect()
+    torch.cuda.reset_peak_memory_stats()
+    torch.cuda.synchronize()
+    
+    start_torch = time.perf_counter()
+    ref_out_torch, ref_c_torch = test_ref_torch(q, k, v)
+    torch.cuda.synchronize()
+    end_torch = time.perf_counter()
+    
+    used_mem_torch = torch.cuda.max_memory_allocated()
+    latency_torch = end_torch - start_torch
+    print(f"mem usage for pytorch implementation is {used_mem_torch / 1024**2} MB")
+    print(f"latency for normal pytorch implementation is {latency_torch}")
+    
+    
 
     # Convert reference tensors to match dtype of Triton results
-    ref_c_gpu = ref_c_gpu.half()
-    ref_out_gpu = ref_out_gpu.half()
+    ref_c_torch = ref_c_torch.half()
+    ref_out_torch = ref_out_torch.half()
 
     # Compare results
-    assert torch.allclose(ref_out_gpu, tri_out_gpu.half(), atol=1e-2, rtol=0), "Attention output mismatch"
+    assert torch.allclose(ref_out_torch, tri_out_gpu.half(), atol=1e-2, rtol=0), "Attention output mismatch"
     print("Attention check passed")
-    assert torch.allclose(ref_c_gpu, tri_c_gpu.half(), atol=1e-2, rtol=0), "Attention score acc mismatch"
+    assert torch.allclose(ref_c_torch, tri_c_gpu.half(), atol=1e-2, rtol=0), "Attention score acc mismatch"
     print("Attention score acc check passed")
 
 
