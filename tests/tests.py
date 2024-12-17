@@ -2,8 +2,7 @@ import torch
 from selection_kernel import selection_attention
 import argparse
 import gc
-
-
+import pandas as pd
 
 def gpu_cleanup():
     """
@@ -49,9 +48,7 @@ def test_triton_computation(Z, H, N_CTX, HEAD_DIM, causal, dtype=torch.float16):
     """
     q, k, v = test_create_tensors(Z, H, N_CTX, HEAD_DIM, dtype)
     sm_scale = 0.5
-    # torch.cuda.synchronize()
     tri_out, tri_c, tri_m = selection_attention(q, k, v, causal, sm_scale)
-    # torch.cuda.synchronize()
     return tri_out, tri_c, tri_m
 
 
@@ -63,6 +60,10 @@ def test_attention(Z, H, N_CTX, HEAD_DIM, causal, dtype=torch.float16):
     # Convert reference tensors to match dtype of Triton results
     ref_c_gpu = ref_c_gpu.half()
     ref_out_gpu = ref_out_gpu.half()
+
+    # save results
+    # pd.DataFrame(ref_c_gpu.cpu().numpy().flatten()).to_csv("/u/ndani/selection_kernel/reference_scores.csv", index=False, header=False, float_format="%.5f") 
+    # pd.DataFrame(tri_c_gpu.cpu().numpy().flatten()).to_csv("/u/ndani/selection_kernel/ours_scores.csv", index=False, header=False, float_format="%.5f")
 
     # Compare results
     assert torch.allclose(ref_out_gpu, tri_out_gpu.half(), atol=1e-2, rtol=0), "Attention output mismatch"
@@ -85,4 +86,7 @@ if __name__ == "__main__":
     print(f"Arguments: {args}")
 
     # Execute the test
-    test_attention(args.Z, args.H, args.N_CTX, args.HEAD_DIM, args.causal)
+    for i in range(10):
+        test_attention(args.Z, args.H, args.N_CTX, args.HEAD_DIM, args.causal)
+        test_attention(2 * args.Z, args.H, args.N_CTX, args.HEAD_DIM, args.causal)
+        test_attention(args.Z, 2 * args.H, args.N_CTX, args.HEAD_DIM, args.causal)
