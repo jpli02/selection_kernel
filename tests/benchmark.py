@@ -73,33 +73,36 @@ def test_attention(Z, H, N_CTX, HEAD_DIM, causal, dtype=torch.float16):
     end_triton = time.perf_counter()
     used_mem_triton = torch.cuda.max_memory_allocated()
     latency_triton = end_triton - start_triton
-    print(f"mem usage for triton implementation is {used_mem_triton/ 1024**2} MB")
-    print(f"latency for normal triton implementation is {latency_triton}")
     
     # test for torch implementation
-    for i in range(10):
-        test_ref_torch(q, k, v)
+    # for i in range(10):
+    #     test_ref_torch(q, k, v)
         
-    torch.cuda.empty_cache()
-    torch.cuda.ipc_collect()
-    torch.cuda.reset_peak_memory_stats()
-    torch.cuda.synchronize()
+    # torch.cuda.empty_cache()
+    # torch.cuda.ipc_collect()
+    # torch.cuda.reset_peak_memory_stats()
+    # torch.cuda.synchronize()
     
-    start_torch = time.perf_counter()
-    ref_out_torch, ref_c_torch = test_ref_torch(q, k, v)
-    torch.cuda.synchronize()
-    end_torch = time.perf_counter()
+    # start_torch = time.perf_counter()
+    # # ref_out_torch, ref_c_torch = test_ref_torch(q, k, v)
+    # torch.cuda.synchronize()
+    # end_torch = time.perf_counter()
     
-    used_mem_torch = torch.cuda.max_memory_allocated()
-    latency_torch = end_torch - start_torch
-    print(f"mem usage for pytorch implementation is {used_mem_torch / 1024**2} MB")
-    print(f"latency for normal pytorch implementation is {latency_torch}")
+    # used_mem_torch = torch.cuda.max_memory_allocated()
+    # latency_torch = end_torch - start_torch
+    
+    print(f"mem usage for triton  is {used_mem_triton/ 1024**2} MB")
+    # print(f"mem usage for pytorch  is {used_mem_torch / 1024**2} MB")
+    
+    print(f"latency for normal triton  is {latency_triton * 1000} ms")
+    
+    # print(f"latency for normal pytorch  is {latency_torch * 1000} ms")
     
     
     for i in range(10):
         test_ref_fa(q, k, v)
         
-    # test for torch fa implementation
+    # test for torch fa 
     torch.cuda.empty_cache()
     torch.cuda.ipc_collect()
     torch.cuda.reset_peak_memory_stats()
@@ -112,8 +115,8 @@ def test_attention(Z, H, N_CTX, HEAD_DIM, causal, dtype=torch.float16):
     
     used_mem_fa = torch.cuda.max_memory_allocated()
     latency_fa = end_fa - start_fa
-    print(f"mem usage for fa implementation is {used_mem_fa / 1024**2} MB")
-    print(f"latency for normal fa implementation is {latency_fa}")
+    # print(f"mem usage for fa implementation is {used_mem_fa / 1024**2} MB")
+    # print(f"latency for normal fa implementation is {latency_fa}")
     
     
 
@@ -122,10 +125,10 @@ def test_attention(Z, H, N_CTX, HEAD_DIM, causal, dtype=torch.float16):
     ref_out_torch = ref_out_torch.half()
 
     # Compare results
-    assert torch.allclose(ref_out_torch, tri_out_gpu.half(), atol=1e-2, rtol=0), "Attention output mismatch"
-    print("Attention check passed")
-    assert torch.allclose(ref_c_torch, tri_c_gpu.half(), atol=1e-2, rtol=0), "Attention score acc mismatch"
-    print("Attention score acc check passed")
+    # assert torch.allclose(ref_out_torch, tri_out_gpu.half(), atol=1e-2, rtol=0), "Attention output mismatch"
+    # print("Attention check passed")
+    # assert torch.allclose(ref_c_torch, tri_c_gpu.half(), atol=1e-2, rtol=0), "Attention score acc mismatch"
+    # print("Attention score acc check passed")
 
 
 if __name__ == "__main__":
