@@ -15,9 +15,16 @@ def _attn_fwd_inner(acc, l_i, m_i, q,  #
                     BLOCK_M: tl.constexpr, HEAD_DIM: tl.constexpr, BLOCK_N: tl.constexpr,  #
                     STAGE: tl.constexpr, offs_m: tl.constexpr, offs_n: tl.constexpr, #
                     N_CTX: tl.constexpr, fp8_v: tl.constexpr):
-
     # range of values handled by this stage
-    lo, hi = 0, N_CTX
+    if STAGE == 1:
+        lo, hi = 0, start_m * BLOCK_M
+    elif STAGE == 2:
+        lo, hi = start_m * BLOCK_M, (start_m + 1) * BLOCK_M
+        lo = tl.multiple_of(lo, BLOCK_M)
+    # causal = False
+    else:
+        lo, hi = 0, N_CTX
+        
     K_block_ptr = tl.advance(K_block_ptr, (0, lo))
     V_block_ptr = tl.advance(V_block_ptr, (lo, 0))
     # loop over k, v and update accumulator
@@ -26,8 +33,15 @@ def _attn_fwd_inner(acc, l_i, m_i, q,  #
         # -- compute qk ----
         k = tl.load(K_block_ptr)
         qk = tl.dot(q, k)
-        m_ij = tl.maximum(m_i, tl.max(qk, 1) * qk_scale)
-        qk = qk * qk_scale - m_ij[:, None]
+        if STAGE == 2:
+            mask = offs_m[:, None] >= (start_n + offs_n[None, :])
+            qk = qk * qk_scale + tl.where(mask, 0, -1.0e6)
+            m_ij = tl.maximum(m_i, tl.max(qk, 1))
+            qk -= m_ij[:, None]
+        else:
+            m_ij = tl.maximum(m_i, tl.max(qk, 1) * qk_scale)
+            qk = qk * qk_scale - m_ij[:, None]
+            
         p = tl.math.exp2(qk)
         l_ij = tl.sum(p, 1)
         # -- update m_i and l_i
@@ -78,11 +92,10 @@ configs = [
     triton.Config({'BLOCK_M': BM, 'BLOCK_N': BN}, num_stages=s, num_warps=w) \
     # for BM in [64, 128]\
     # for BN in [32, 64]\
-    for BM in [64]\
-    for BN in [64]\
+    for BM in [16]\
+    for BN in [16]\
     for s in ([1] if is_hip() else [3, 4, 7])\
-    # for w in [4, 8]\
-    for w in [4]\
+    for w in [4, 8]\
 ]
 
 
@@ -93,12 +106,8 @@ def keep(conf):
         return False
     return True
 
-def init_c_hook(**kwargs):
-    # kwargs will include 'C' because we provided reset_to_zero=["C"]
-    C = kwargs['C']
-    C.zero_()
 
-@triton.autotune(list(filter(keep, configs)), key=["N_CTX", "HEAD_DIM"], reset_to_zero=["C"])
+@triton.autotune(list(filter(keep, configs)), key=["N_CTX", "HEAD_DIM"])
 @triton.jit
 def _attn_fwd(Q, K, V, sm_scale, M, Out, C, # C = (Z, H, N_CTX)
               stride_qz, stride_qh, stride_qm, stride_qk,  #
@@ -171,11 +180,24 @@ def _attn_fwd(Q, K, V, sm_scale, M, Out, C, # C = (Z, H, N_CTX)
     qk_scale *= 1.44269504  # 1/log(2)
     # load q: it will stay in SRAM throughout
     q = tl.load(Q_block_ptr)
-    acc, l_i, m_i = _attn_fwd_inner(acc, l_i, m_i, q, K_block_ptr, V_block_ptr, #
-                                    start_m, qk_scale,  #
-                                    BLOCK_M, HEAD_DIM, BLOCK_N,  #
-                                    4 - STAGE, offs_m, offs_n, N_CTX, V.dtype.element_ty == tl.float8e5  #
-                                    )
+    # stage 1: off-band
+    # For causal = True, STAGE = 3 and _attn_fwd_inner gets 1 as its STAGE
+    # For causal = False, STAGE = 1, and _attn_fwd_inner gets 3 as its STAGE
+    if STAGE & 1:
+        acc, l_i, m_i = _attn_fwd_inner(acc, l_i, m_i, q, K_block_ptr, V_block_ptr,  #
+                                        start_m, qk_scale,  #
+                                        BLOCK_M, HEAD_DIM, BLOCK_N,  #
+                                        4 - STAGE, offs_m, offs_n, N_CTX, V.dtype.element_ty == tl.float8e5  #
+                                        )
+    # stage 2: on-band
+    if STAGE & 2:
+        # barrier makes it easier for compielr to schedule the
+        # two loops independently
+        acc, l_i, m_i = _attn_fwd_inner(acc, l_i, m_i, q, K_block_ptr, V_block_ptr,  #
+                                        start_m, qk_scale,  #
+                                        BLOCK_M, HEAD_DIM, BLOCK_N,  #
+                                        2, offs_m, offs_n, N_CTX, V.dtype.element_ty == tl.float8e5  #
+                                        )
     # epilogue
     m_i += tl.math.log2(l_i)
     acc = acc / l_i[:, None]
