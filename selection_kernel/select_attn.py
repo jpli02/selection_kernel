@@ -24,7 +24,7 @@ def _attn_fwd_inner(acc, l_i, m_i, q,  #
     # causal = False
     else:
         lo, hi = 0, N_CTX
-        
+
     K_block_ptr = tl.advance(K_block_ptr, (0, lo))
     V_block_ptr = tl.advance(V_block_ptr, (lo, 0))
     # loop over k, v and update accumulator
@@ -41,7 +41,7 @@ def _attn_fwd_inner(acc, l_i, m_i, q,  #
         else:
             m_ij = tl.maximum(m_i, tl.max(qk, 1) * qk_scale)
             qk = qk * qk_scale - m_ij[:, None]
-            
+
         p = tl.math.exp2(qk)
         l_ij = tl.sum(p, 1)
         # -- update m_i and l_i
@@ -68,14 +68,27 @@ def _acc_attention_score(acc_score, k,  #
                         Q_block_ptr, M_block_ptr, #
                         start_m, qk_scale,  #
                         BLOCK_M: tl.constexpr, BLOCK_N: tl.constexpr,  #
+                        STAGE: tl.constexpr, offs_m: tl.constexpr, offs_n: tl.constexpr, #
                         N_CTX: tl.constexpr):
-    
-    lo, hi = 0, N_CTX
+    # range of values handled by this stage
+    if STAGE == 1:
+        lo, hi = (start_m + 1) * BLOCK_N, N_CTX
+    elif STAGE == 2:
+        lo, hi = start_m * BLOCK_N, (start_m + 1) * BLOCK_N
+        lo = tl.multiple_of(lo, BLOCK_M)
+    # causal = False
+    else:
+        lo, hi = 0, N_CTX
     for start_n in range(lo, hi, BLOCK_M):
         q = tl.load(Q_block_ptr)
         m = tl.load(M_block_ptr)
         qk = tl.dot(q, k)
-        qk = qk * qk_scale - m[:, None]
+        if STAGE == 2:
+            mask = offs_m[:, None] >= (start_n + offs_n[None, :])
+            qk = qk * qk_scale + tl.where(mask, 0, -1.0e6) - m[:, None]
+        else:
+            qk = qk * qk_scale - m[:, None]
+
         p = tl.math.exp2(qk)
 
         acc_score += tl.sum(p, 0)
@@ -83,7 +96,6 @@ def _acc_attention_score(acc_score, k,  #
         M_block_ptr = tl.advance(M_block_ptr, (BLOCK_M,))
 
     return acc_score
-
 
 # We don't run auto-tuning every time to keep the tutorial fast. Keeping`
 # the code below and commenting out the equivalent parameters is convenient for
@@ -165,7 +177,7 @@ def _attn_fwd(Q, K, V, sm_scale, M, Out, C, # C = (Z, H, N_CTX)
         block_shape=(BLOCK_M, HEAD_DIM),
         order=(1, 0),
     )
-    
+
     # initialize offsets
     offs_m = start_m * BLOCK_M + tl.arange(0, BLOCK_M)
     offs_n = tl.arange(0, BLOCK_N)
@@ -205,11 +217,11 @@ def _attn_fwd(Q, K, V, sm_scale, M, Out, C, # C = (Z, H, N_CTX)
     tl.store(m_ptrs, m_i)
     tl.store(O_block_ptr, acc.to(Out.type.element_ty))
 
-    # accumulated score calculation
+    # second-pass accumulated score calculation
     # required condition: BLOCK_M == BLOCK_N
     m_offset = off_z.to(tl.int64) * stride_mz + off_h.to(tl.int64) * stride_mh
     c_offset = off_z.to(tl.int64) * stride_cz + off_h.to(tl.int64) * stride_ch
-    
+
     Q_block_ptr = tl.make_block_ptr(
         base=Q + qvk_offset,
         shape=(N_CTX, HEAD_DIM),
@@ -244,12 +256,27 @@ def _attn_fwd(Q, K, V, sm_scale, M, Out, C, # C = (Z, H, N_CTX)
         order=(0,)
     )
 
+    offs_m = tl.arange(0, BLOCK_M)
+    offs_n = start_m * BLOCK_N + tl.arange(0, BLOCK_N)
+
     acc_score = tl.zeros([BLOCK_N,], dtype=tl.float32)
     k = tl.load(K_block_ptr)
-    acc_score = _acc_attention_score(acc_score, k,
+    if STAGE & 1:
+        acc_score = _acc_attention_score(acc_score, k,
                         Q_block_ptr, M_block_ptr, #
                         start_m, qk_scale,  #
                         BLOCK_M, BLOCK_N,  #
+                        4 - STAGE, offs_m, offs_n, #
+                        N_CTX)
+    # stage 2: on-band
+    if STAGE & 2:
+        # barrier makes it easier for compielr to schedule the
+        # two loops independently
+        acc_score = _acc_attention_score(acc_score, k,
+                        Q_block_ptr, M_block_ptr, #
+                        start_m, qk_scale,  #
+                        BLOCK_M, BLOCK_N,  #
+                        2, offs_m, offs_n, #
                         N_CTX)
 
     tl.store(C_block_ptr, acc_score.to(C.type.element_ty))

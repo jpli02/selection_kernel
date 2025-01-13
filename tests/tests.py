@@ -75,12 +75,10 @@ def test_attention(Z, H, N_CTX, HEAD_DIM, causal=False, dtype=torch.float16):
     Test to compare correctness of triton cmul attention kernel
     """
     gpu_cleanup()
-    # pytorch results
     ref_out_gpu1, ref_c_gpu1 = ref_attention(Z, H, N_CTX, HEAD_DIM, causal, dtype)
     # Convert reference tensors to match dtype of Triton results
     ref_c_gpu1 = ref_c_gpu1.half()
     ref_out_gpu1 = ref_out_gpu1.half()
-    # triton results
     tri_out_gpu, tri_c_gpu, tri_m_gpu = triton_attention(Z, H, N_CTX, HEAD_DIM, causal, dtype)
     
     # Compare results
@@ -95,8 +93,6 @@ def test_attention(Z, H, N_CTX, HEAD_DIM, causal=False, dtype=torch.float16):
     # save results
     # pd.DataFrame(ref_c_gpu.cpu().numpy().flatten()).to_csv("/u/ndani/selection_kernel/reference_scores.csv", index=False, header=False, float_format="%.5f") 
     # pd.DataFrame(tri_c_gpu.cpu().numpy().flatten()).to_csv("/u/ndani/selection_kernel/ours_scores.csv", index=False, header=False, float_format="%.5f")
-
-   
 
 if __name__ == "__main__":
     # Parse command-line arguments
