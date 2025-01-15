@@ -84,7 +84,8 @@ def _acc_attention_score(acc_score, k,  #
         m = tl.load(M_block_ptr)
         qk = tl.dot(q, k)
         if STAGE == 2:
-            mask = offs_m[:, None] >= (start_n + offs_n[None, :])
+            mask = (offs_m[:, None] + start_n) >= offs_n[None, :]
+            # mask = (offs_m[:, None] + start_m) >= (offs_n[None, :])
             qk = qk * qk_scale + tl.where(mask, 0, -1.0e6) - m[:, None]
         else:
             qk = qk * qk_scale - m[:, None]
