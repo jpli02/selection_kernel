@@ -70,25 +70,19 @@ def _acc_attention_score(acc_score, k,  #
                         BLOCK_M: tl.constexpr, BLOCK_N: tl.constexpr,  #
                         STAGE: tl.constexpr, offs_m: tl.constexpr, offs_n: tl.constexpr, #
                         N_CTX: tl.constexpr):
+
     # range of values handled by this stage
-    if STAGE == 1:
-        lo, hi = (start_m + 1) * BLOCK_N, N_CTX
-    elif STAGE == 2:
-        lo, hi = start_m * BLOCK_N, (start_m + 1) * BLOCK_N
-        lo = tl.multiple_of(lo, BLOCK_M)
-    # causal = False
-    else:
-        lo, hi = 0, N_CTX
+    lo, hi = 0, N_CTX
     for start_n in range(lo, hi, BLOCK_M):
         q = tl.load(Q_block_ptr)
         m = tl.load(M_block_ptr)
         qk = tl.dot(q, k)
-        if STAGE == 2:
-            mask = (offs_m[:, None] + start_n) >= offs_n[None, :]
-            # mask = (offs_m[:, None] + start_m) >= (offs_n[None, :])
-            qk = qk * qk_scale + tl.where(mask, 0, -1.0e6) - m[:, None]
+        if STAGE == 1 or STAGE == 2:
+          mask = (offs_m[:, None] + start_n) >= (offs_n[None, :])
+          qk = qk * qk_scale + tl.where(mask, 0, -1.0e8) - m[:, None]
+        # causal = False
         else:
-            qk = qk * qk_scale - m[:, None]
+          qk = qk * qk_scale  - m[:, None]
 
         p = tl.math.exp2(qk)
 
@@ -97,6 +91,7 @@ def _acc_attention_score(acc_score, k,  #
         M_block_ptr = tl.advance(M_block_ptr, (BLOCK_M,))
 
     return acc_score
+
 
 # We don't run auto-tuning every time to keep the tutorial fast. Keeping`
 # the code below and commenting out the equivalent parameters is convenient for
@@ -262,26 +257,15 @@ def _attn_fwd(Q, K, V, sm_scale, M, Out, C, # C = (Z, H, N_CTX)
 
     acc_score = tl.zeros([BLOCK_N,], dtype=tl.float32)
     k = tl.load(K_block_ptr)
-    if STAGE & 1:
-        acc_score = _acc_attention_score(acc_score, k,
-                        Q_block_ptr, M_block_ptr, #
-                        start_m, qk_scale,  #
-                        BLOCK_M, BLOCK_N,  #
-                        4 - STAGE, offs_m, offs_n, #
-                        N_CTX)
-    # stage 2: on-band
-    if STAGE & 2:
-        # barrier makes it easier for compielr to schedule the
-        # two loops independently
-        acc_score = _acc_attention_score(acc_score, k,
-                        Q_block_ptr, M_block_ptr, #
-                        start_m, qk_scale,  #
-                        BLOCK_M, BLOCK_N,  #
-                        2, offs_m, offs_n, #
-                        N_CTX)
+    acc_score = _acc_attention_score(acc_score, k,
+                    Q_block_ptr, M_block_ptr, #
+                    start_m, qk_scale,  #
+                    BLOCK_M, BLOCK_N,  #
+                    4 - STAGE, offs_m, offs_n, #
+                    N_CTX)
+
 
     tl.store(C_block_ptr, acc_score.to(C.type.element_ty))
-
 
 class _attention(torch.autograd.Function):
 
@@ -292,7 +276,7 @@ class _attention(torch.autograd.Function):
         # when v is in float8_e5m2 it is transposed.
         HEAD_DIM_V = v.shape[-1]
         assert HEAD_DIM_Q == HEAD_DIM_K and HEAD_DIM_K == HEAD_DIM_V
-        assert HEAD_DIM_K in {16, 32, 64, 128, 256}
+        assert HEAD_DIM_K in {1, 16, 32, 64, 128, 256}
         o = torch.empty_like(q)
         c = torch.zeros((q.shape[0], q.shape[1], q.shape[2]), dtype=torch.float32, device=q.device)
         stage = 3 if causal else 1
