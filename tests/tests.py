@@ -81,7 +81,7 @@ def test_attention():
     # Get Triton-based output
     tri_out_gpu, tri_c_gpu, tri_m_gpu = triton_attention(q, k, v)
     
-    # Compare results
+    Compare results
     print(f"Attention max diff: {(tri_out_gpu - ref_out_gpu).abs().max().item()}")
     assert torch.allclose(ref_out_gpu, tri_out_gpu, atol=0.8, rtol=0), "Attention output mismatch"
     print("Attention check passed")
@@ -90,9 +90,13 @@ def test_attention():
     assert torch.allclose(ref_c_gpu, tri_c_gpu.half(), atol=0.05, rtol=0), "Attention score accumulation mismatch"
     print("Attention score accumulation check passed")
     
-    # Uncomment to save results
-    # pd.DataFrame(ref_c_gpu.cpu().numpy().flatten()).to_csv("reference_scores.csv", index=False, header=False, float_format="%.5f") 
-    # pd.DataFrame(tri_c_gpu.cpu().numpy().flatten()).to_csv("ours_scores.csv", index=False, header=False, float_format="%.5f")
+    # df = pd.DataFrame({
+    #     'Reference Scores': ref_out_gpu.cpu().numpy().flatten(),
+    #     'Triton Scores': tri_out_gpu.cpu().numpy().flatten()
+    # })
+
+    # Save to CSV with two columns
+    # df.to_csv("comparison_scores.csv", index=False, float_format="%.5f")
 
 if __name__ == "__main__":
     # Run the attention test
