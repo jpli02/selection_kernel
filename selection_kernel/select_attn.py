@@ -32,17 +32,18 @@ def _attn_fwd_inner(acc, l_i, m_i, q,  #
     for start_n in range(lo, hi, BLOCK_N):
         start_n = tl.multiple_of(start_n, BLOCK_N)
         # -- compute qk ----
-        # abs_n = start_n + offs_n[None, :]
-        # mask_n = abs_n < N_CTX
-        # k = tl.load(K_block_ptr, mask=mask_n[:, None])
         k = tl.load(K_block_ptr, boundary_check=(0,), padding_option="zero")
         qk = tl.dot(q, k)
+        mask_n = start_n + offs_n[None, :] < N_CTX
         if STAGE == 2:
             mask = offs_m[:, None] >= (start_n + offs_n[None, :])
-            qk = qk * qk_scale + tl.where(mask, 0, -1.0e6)
+            mask_combine = mask & mask_m & mask_n
+            qk = qk * qk_scale + tl.where(mask_combine, 0, -1.0e6)
             m_ij = tl.maximum(m_i, tl.max(qk, 1))
             qk -= m_ij[:, None]
         else:
+            mask_combine = mask_m & mask_n
+            qk = qk + tl.where(mask_combine, 0, -1.0e6)
             m_ij = tl.maximum(m_i, tl.max(qk, 1) * qk_scale)
             qk = qk * qk_scale - m_ij[:, None]
 
@@ -78,15 +79,19 @@ def _acc_attention_score(acc_score, k,  #
     # range of values handled by this stage
     lo, hi = 0, N_CTX
     for start_n in range(lo, hi, BLOCK_M):
-        q = tl.load(Q_block_ptr)
-        m = tl.load(M_block_ptr)
+        q = tl.load(Q_block_ptr, boundary_check=(0,), padding_option="zero")
+        m = tl.load(M_block_ptr, boundary_check=(0,), padding_option="zero")
         qk = tl.dot(q, k)
+        mask_m = offs_m[:, None] + start_n < N_CTX
+        mask_n = offs_n < N_CTX
         if STAGE == 1 or STAGE == 2:
           mask = (offs_m[:, None] + start_n) >= (offs_n[None, :])
-          qk = qk * qk_scale + tl.where(mask, 0, -1.0e8) - m[:, None]
+          mask_combine = mask & mask_m & mask_n
+          qk = qk * qk_scale + tl.where(mask_combine, 0, -1.0e8) - m[:, None]
         # causal = False
         else:
-          qk = qk * qk_scale  - m[:, None]
+          mask_combine = mask_m & mask_n
+          qk = qk * qk_scale + tl.where(mask_combine, 0, -1.0e8) - m[:, None]
 
         p = tl.math.exp2(qk)
 
@@ -264,7 +269,9 @@ def _attn_fwd(Q, K, V, sm_scale, M, Out, C, # C = (Z, H, N_CTX)
     offs_n = start_m * BLOCK_N + tl.arange(0, BLOCK_N)
 
     acc_score = tl.zeros([BLOCK_N,], dtype=tl.float32)
-    k = tl.load(K_block_ptr)
+    # k = tl.load(K_block_ptr)
+    k = tl.load(K_block_ptr, boundary_check=(0,), padding_option="zero")
+    
     acc_score = _acc_attention_score(acc_score, k,
                     Q_block_ptr, M_block_ptr, #
                     start_m, qk_scale,  #
@@ -273,7 +280,8 @@ def _attn_fwd(Q, K, V, sm_scale, M, Out, C, # C = (Z, H, N_CTX)
                     N_CTX)
 
 
-    tl.store(C_block_ptr, acc_score.to(C.type.element_ty))
+    # tl.store(C_block_ptr, acc_score.to(C.type.element_ty))
+    tl.store(C_block_ptr, acc_score.to(C.type.element_ty), boundary_check=(0,))
 
 class _attention(torch.autograd.Function):
 
