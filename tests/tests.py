@@ -1,6 +1,6 @@
 import torch
 import torch.nn as nn
-from selection_kernel import selection_attention
+# from selection_kernel import selection_attention
 import math
 import pandas as pd
 
@@ -9,6 +9,17 @@ def gpu_cleanup():
     Function to clean up GPU memory.
     """
     torch.cuda.empty_cache()
+
+def create_tensors(Z, H, N_CTX, HEAD_DIM, dtype=torch.float16):
+    """
+    Create tensors for attention computation.
+    """
+    # torch.manual_seed(20)
+    q = torch.rand((Z, H, N_CTX, HEAD_DIM), dtype=dtype, device="cuda")
+    k = torch.rand((Z, H, N_CTX, HEAD_DIM), dtype=dtype, device="cuda")
+    v = torch.rand((Z, H, N_CTX, HEAD_DIM), dtype=dtype, device="cuda")
+    return q, k, v
+
 
 def _make_causal_mask(
     bsz: int, tgt_len: int, past_key_values_length: int, dtype: torch.dtype, device: torch.device):
@@ -62,14 +73,11 @@ def test_attention():
     """
     Test to compare correctness of triton cmul attention kernel
     """
-    gpu_cleanup()
-    
-    # Load tensors from the saved files
-    q = torch.load('query_states.pt').to(torch.float16).cuda()  # Ensure tensor is on GPU and in correct dtype
-    k = torch.load('key_states.pt').to(torch.float16).cuda()
-    v = torch.load('value_states.pt').to(torch.float16).cuda()
+    # gpu_cleanup()
+    q, k, v = create_tensors(Z, H, N_CTX, HEAD_DIM, dtype)
     
     Z, H, N_CTX, dim = q.shape  # Assuming q.shape is (batch_size, head_size, context_length, dim)
+    print(f"batch: {Z}, Head: {H}, seqLen: {N_CTX}, dim: {dim}")
 
     # Get reference output from standard attention
     ref_out_gpu, ref_c_gpu = ref_attention(q, k, v)
@@ -81,9 +89,8 @@ def test_attention():
     # Get Triton-based output
     tri_out_gpu, tri_c_gpu, tri_m_gpu = triton_attention(q, k, v)
     
-    Compare results
     print(f"Attention max diff: {(tri_out_gpu - ref_out_gpu).abs().max().item()}")
-    assert torch.allclose(ref_out_gpu, tri_out_gpu, atol=0.8, rtol=0), "Attention output mismatch"
+    assert torch.allclose(ref_out_gpu, tri_out_gpu, atol=0.08, rtol=0), "Attention output mismatch"
     print("Attention check passed")
     
     print(f"Accum score max diff: {(tri_c_gpu - ref_c_gpu).abs().max().item()}")

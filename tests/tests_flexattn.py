@@ -5,6 +5,7 @@ import argparse
 import math
 import gc
 import pandas as pd
+import time
 
 def gpu_cleanup():
     """
@@ -17,7 +18,8 @@ def create_tensors(Z, H, N_CTX, HEAD_DIM, dtype=torch.float16):
     """
     Create tensors for attention computation.
     """
-    torch.manual_seed(20)
+    # torch.manual_seed(20)
+    torch.manual_seed(int(time.time()))
     q = torch.rand((Z, H, N_CTX, HEAD_DIM), dtype=dtype, device="cuda")
     k = torch.rand((Z, H, N_CTX, HEAD_DIM), dtype=dtype, device="cuda")
     v = torch.rand((Z, H, N_CTX, HEAD_DIM), dtype=dtype, device="cuda")
