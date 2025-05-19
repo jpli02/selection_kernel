@@ -1,0 +1,12 @@
+Metadata-Version: 2.1
+Name: selection_kernel
+Version: 0.0.1
+Summary: A project implementing optimized attention mechanisms using Triton and PyTorch.
+Author: Neel Dani, Jianping Li
+Author-email: neeld2@illinois.edu, jli199@illinois.edu
+Classifier: Programming Language :: Python :: 3
+Classifier: License :: OSI Approved :: MIT License
+Classifier: Operating System :: OS Independent
+Requires-Python: >=3.8
+Requires-Dist: torch>=2.0.0
+Requires-Dist: triton>=2.1.0

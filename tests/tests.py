@@ -108,7 +108,6 @@ if __name__ == "__main__":
     print(f"Arguments: {args}")
 
     # Execute the test
-    # for i in range(10):
     test_attention(args.Z, args.H, args.N_CTX, args.HEAD_DIM, args.causal)
     # test_attention(2 * args.Z, args.H, args.N_CTX, args.HEAD_DIM, args.causal)
     # test_attention(args.Z, 2 * args.H, args.N_CTX, args.HEAD_DIM, args.causal)

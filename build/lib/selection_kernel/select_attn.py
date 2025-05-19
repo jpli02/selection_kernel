@@ -32,10 +32,9 @@ def _attn_fwd_inner(acc, l_i, m_i, q,  #
     for start_n in range(lo, hi, BLOCK_N):
         start_n = tl.multiple_of(start_n, BLOCK_N)
         # -- compute qk ----
-        # abs_n = start_n + offs_n[None, :]
-        # mask_n = abs_n < N_CTX
-        # k = tl.load(K_block_ptr, mask=mask_n[:, None])
-        k = tl.load(K_block_ptr, boundary_check=(0,), padding_option="zero")
+        abs_n = start_n + offs_n[None, :]
+        mask_n = abs_n < N_CTX
+        k = tl.load(K_block_ptr, mask=mask_n[:, None])
         qk = tl.dot(q, k)
         if STAGE == 2:
             mask = offs_m[:, None] >= (start_n + offs_n[None, :])
@@ -219,7 +218,7 @@ def _attn_fwd(Q, K, V, sm_scale, M, Out, C, # C = (Z, H, N_CTX)
     # tl.store(m_ptrs, m_i)
     # tl.store(O_block_ptr, acc.to(Out.type.element_ty))
     tl.store(m_ptrs, m_i, mask=mask_m)
-    tl.store(O_block_ptr, out, boundary_check=(0,))
+    tl.store(O_block_ptr, out, mask=mask_m[:, None])
 
     # second-pass accumulated score calculation
     # required condition: BLOCK_M == BLOCK_N
