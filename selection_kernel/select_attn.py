@@ -43,9 +43,9 @@ def _attn_fwd_inner(acc, l_i, m_i, q,  #
             qk -= m_ij[:, None]
         else:
             mask_combine = mask_m & mask_n
-            qk = qk + tl.where(mask_combine, 0, -1.0e6)
-            m_ij = tl.maximum(m_i, tl.max(qk, 1) * qk_scale)
-            qk = qk * qk_scale - m_ij[:, None]
+            qk = qk * qk_scale + tl.where(mask_combine, 0, -1.0e6)
+            m_ij = tl.maximum(m_i, tl.max(qk, 1))
+            qk -= m_ij[:, None]
 
         p = tl.math.exp2(qk)
         l_ij = tl.sum(p, 1)
@@ -291,7 +291,7 @@ class _attention(torch.autograd.Function):
         HEAD_DIM_Q, HEAD_DIM_K = q.shape[-1], k.shape[-1]
         # when v is in float8_e5m2 it is transposed.
         HEAD_DIM_V = v.shape[-1]
-        assert HEAD_DIM_Q == HEAD_DIM_K and HEAD_DIM_K == HEAD_DIM_V
+        # assert HEAD_DIM_Q == HEAD_DIM_K and HEAD_DIM_K == HEAD_DIM_V
         assert HEAD_DIM_K in {1, 16, 32, 64, 128, 256}
         o = torch.empty_like(q)
         c = torch.zeros((q.shape[0], q.shape[1], q.shape[2]), dtype=torch.float32, device=q.device)
