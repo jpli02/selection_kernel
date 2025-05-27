@@ -43,10 +43,10 @@ def _attn_fwd_inner(acc, l_i, m_i, q,  #
             qk -= m_ij[:, None]
         else:
             mask_combine = mask_m & mask_n
-            qk = qk * qk_scale + tl.where(mask_combine, 0, -1.0e6)
-            m_ij = tl.maximum(m_i, tl.max(qk, 1))
-            qk -= m_ij[:, None]
-
+            qk = qk + tl.where(mask_combine, 0, -1.0e6)
+            m_ij = tl.maximum(m_i, tl.max(qk, 1) * qk_scale)
+            qk = qk * qk_scale - m_ij[:, None]
+            
         p = tl.math.exp2(qk)
         l_ij = tl.sum(p, 1)
         # -- update m_i and l_i
@@ -55,7 +55,8 @@ def _attn_fwd_inner(acc, l_i, m_i, q,  #
         # -- update output accumulator --
         acc = acc * alpha[:, None]
         # update acc
-        v = tl.load(V_block_ptr)
+        # v = tl.load(V_block_ptr)
+        v = tl.load(V_block_ptr, boundary_check=(0,), padding_option="zero")
         if fp8_v:
             p = p.to(tl.float8e5)
         else:
@@ -270,7 +271,7 @@ def _attn_fwd(Q, K, V, sm_scale, M, Out, C, # C = (Z, H, N_CTX)
 
     acc_score = tl.zeros([BLOCK_N,], dtype=tl.float32)
     # k = tl.load(K_block_ptr)
-    k = tl.load(K_block_ptr, boundary_check=(0,), padding_option="zero")
+    k = tl.load(K_block_ptr, boundary_check=(0, 1), padding_option="zero")
     
     acc_score = _acc_attention_score(acc_score, k,
                     Q_block_ptr, M_block_ptr, #
