@@ -34,19 +34,20 @@ def _attn_fwd_inner(acc, l_i, m_i, q,  #
         # -- compute qk ----
         k = tl.load(K_block_ptr, boundary_check=(0,), padding_option="zero")
         qk = tl.dot(q, k)
+        
         mask_n = start_n + offs_n[None, :] < N_CTX
-        if STAGE == 2:
-            mask = offs_m[:, None] >= (start_n + offs_n[None, :])
-            mask_combine = mask & mask_m & mask_n
-            qk = qk * qk_scale + tl.where(mask_combine, 0, -1.0e6)
-            m_ij = tl.maximum(m_i, tl.max(qk, 1))
-            qk -= m_ij[:, None]
-        else:
-            mask_combine = mask_m & mask_n
-            qk = qk + tl.where(mask_combine, 0, -1.0e6)
-            m_ij = tl.maximum(m_i, tl.max(qk, 1) * qk_scale)
-            qk = qk * qk_scale - m_ij[:, None]
+        mask_combine = mask_m & mask_n
+        
+        # Apply causal mask only if in a causal stage
+        if STAGE == 1 or STAGE == 2:
+            causal_mask = offs_m[:, None] >= (start_n + offs_n[None, :])
+            mask_combine &= causal_mask
             
+        # Unified and corrected softmax calculation
+        qk = qk * qk_scale + tl.where(mask_combine, 0, -1.0e6)
+        m_ij = tl.maximum(m_i, tl.max(qk, 1))
+        qk -= m_ij[:, None]
+        
         p = tl.math.exp2(qk)
         l_ij = tl.sum(p, 1)
         # -- update m_i and l_i
